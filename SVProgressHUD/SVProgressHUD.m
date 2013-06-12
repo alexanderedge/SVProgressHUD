@@ -427,7 +427,7 @@ CGFloat SVProgressHUDRingThickness = 6;
     if(!self.superview)
         [self.overlayView addSubview:self];
     
-    if (hudMaskType != SVProgressHUDMaskTypeClear) {
+    if (hudMaskType != SVProgressHUDMaskTypeNone) {
         self.hudView.backgroundColor = self.hudBackgroundColor;
     }
     else
