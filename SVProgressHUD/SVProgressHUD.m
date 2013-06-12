@@ -24,7 +24,6 @@ CGFloat SVProgressHUDRingRadius = 14;
 CGFloat SVProgressHUDRingThickness = 6;
 
 @interface SVProgressHUD ()
-
 @property (nonatomic, readwrite) SVProgressHUDMaskType maskType;
 @property (nonatomic, strong, readonly) NSTimer *fadeOutTimer;
 
@@ -33,6 +32,7 @@ CGFloat SVProgressHUDRingThickness = 6;
 @property (nonatomic, strong, readonly) UILabel *stringLabel;
 @property (nonatomic, strong, readonly) UIImageView *imageView;
 @property (nonatomic, strong, readonly) UIActivityIndicatorView *spinnerView;
+@property (nonatomic, strong) UIView *customView;
 
 @property (nonatomic, readwrite) CGFloat progress;
 @property (nonatomic, readwrite) NSUInteger activityCount;
@@ -124,6 +124,10 @@ CGFloat SVProgressHUDRingThickness = 6;
     [[self sharedView] showProgress:progress status:status maskType:maskType];
 }
 
++ (void)showWithCustomView:(UIView*)view status:(NSString*)status maskType:(SVProgressHUDMaskType)maskType{
+    [[self sharedView] showCustomView:view status:status maskType:maskType];
+}
+
 #pragma mark - Show then dismiss methods
 
 + (void)showSuccessWithStatus:(NSString *)string {
@@ -211,11 +215,13 @@ CGFloat SVProgressHUDRingThickness = 6;
     // False if it's text-only
     BOOL imageUsed = (self.imageView.image) || (self.imageView.hidden);
     
+    BOOL customViewUsed = (self.customView != nil);
+    
     if(string) {
         CGSize stringSize = [string sizeWithFont:self.stringLabel.font constrainedToSize:CGSizeMake(200, 300)];
         stringWidth = stringSize.width;
         stringHeight = stringSize.height;
-        if (imageUsed)
+        if (imageUsed || customViewUsed)
             hudHeight = 80+stringHeight;
         else
             hudHeight = 20+stringHeight;
@@ -223,7 +229,7 @@ CGFloat SVProgressHUDRingThickness = 6;
         if(stringWidth > hudWidth)
             hudWidth = ceil(stringWidth/2)*2;
         
-        CGFloat labelRectY = imageUsed ? 66 : 9;
+        CGFloat labelRectY = (imageUsed || customViewUsed) ? 66 : 9;
         
         if(hudHeight > 100) {
             labelRect = CGRectMake(12, labelRectY, hudWidth, stringHeight);
@@ -236,10 +242,18 @@ CGFloat SVProgressHUDRingThickness = 6;
 	
 	self.hudView.bounds = CGRectMake(0, 0, hudWidth, hudHeight);
 	
-    if(string)
-        self.imageView.center = CGPointMake(CGRectGetWidth(self.hudView.bounds)/2, 36);
+    CGPoint centerPoint;
+    
+    if(string){
+        centerPoint = CGPointMake(CGRectGetWidth(self.hudView.bounds)/2, 36);
+    }
 	else
-       	self.imageView.center = CGPointMake(CGRectGetWidth(self.hudView.bounds)/2, CGRectGetHeight(self.hudView.bounds)/2);
+    {
+        centerPoint = CGPointMake(CGRectGetWidth(self.hudView.bounds)/2, CGRectGetHeight(self.hudView.bounds)/2);
+    }
+    
+    self.imageView.center = centerPoint;
+    self.customView.center = centerPoint;
 	
 	self.stringLabel.hidden = NO;
 	self.stringLabel.frame = labelRect;
@@ -413,6 +427,14 @@ CGFloat SVProgressHUDRingThickness = 6;
     if(!self.superview)
         [self.overlayView addSubview:self];
     
+    if (hudMaskType != SVProgressHUDMaskTypeClear) {
+        self.hudView.backgroundColor = self.hudBackgroundColor;
+    }
+    else
+    {
+        self.hudView.backgroundColor = [UIColor clearColor];
+    }
+    
     self.fadeOutTimer = nil;
     self.imageView.hidden = YES;
     self.maskType = hudMaskType;
@@ -422,6 +444,8 @@ CGFloat SVProgressHUDRingThickness = 6;
     [self updatePosition];
     
     if(progress >= 0) {
+        [self.customView removeFromSuperview];
+        self.customView = nil;
         self.imageView.image = nil;
         self.imageView.hidden = NO;
         [self.spinnerView stopAnimating];
@@ -478,6 +502,11 @@ CGFloat SVProgressHUDRingThickness = 6;
     if(![self.class isVisible])
         [self.class show];
     
+    if (self.customView){
+        [self.customView removeFromSuperview];
+        self.customView = nil;
+    }
+    
     self.imageView.image = image;
     self.imageView.hidden = NO;
     self.stringLabel.text = string;
@@ -497,6 +526,36 @@ CGFloat SVProgressHUDRingThickness = 6;
     
     self.fadeOutTimer = [NSTimer timerWithTimeInterval:duration target:self selector:@selector(dismiss) userInfo:nil repeats:NO];
     [[NSRunLoop mainRunLoop] addTimer:self.fadeOutTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)showCustomView:(UIView *)view status:(NSString *)string maskType:(SVProgressHUDMaskType)hudMaskType {
+    self.progress = -1;
+    [self cancelRingLayerAnimation];
+    
+    if(![self.class isVisible])
+        [self.superclass showWithStatus:string maskType:hudMaskType];
+    
+    if (self.customView) {
+        [self.customView removeFromSuperview];
+    }
+    [self.hudView addSubview:view];
+    self.customView = view;
+    self.customView.hidden = NO;
+    self.stringLabel.text = string;
+    [self updatePosition];
+    [self.spinnerView stopAnimating];
+    
+    if(self.maskType != SVProgressHUDMaskTypeNone) {
+        self.accessibilityLabel = string;
+        self.isAccessibilityElement = YES;
+    } else {
+        self.hudView.accessibilityLabel = string;
+        self.hudView.isAccessibilityElement = YES;
+    }
+    
+    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, nil);
+    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, string);
+    
 }
 
 - (void)dismiss {
@@ -544,7 +603,7 @@ CGFloat SVProgressHUDRingThickness = 6;
 - (CAShapeLayer *)ringLayer {
     if(!_ringLayer) {
         CGPoint center = CGPointMake(CGRectGetWidth(hudView.frame)/2, CGRectGetHeight(hudView.frame)/2);
-        _ringLayer = [self createRingLayerWithCenter:center radius:SVProgressHUDRingRadius lineWidth:SVProgressHUDRingThickness color:[UIColor whiteColor]];
+        _ringLayer = [self createRingLayerWithCenter:center radius:SVProgressHUDRingRadius lineWidth:SVProgressHUDRingThickness color:self.hudForegroundColor];
         [self.hudView.layer addSublayer:_ringLayer];
     }
     return _ringLayer;
